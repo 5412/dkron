@@ -32,7 +32,6 @@ var (
 // It gives dkron the ability to manipulate its embedded storage
 // BadgerDB.
 type Store struct {
-	agent  *Agent
 	db     *badger.DB
 	lock   *sync.Mutex // for
 	closed bool
@@ -58,9 +57,8 @@ func NewStore(a *Agent, dir string) (*Store, error) {
 	}
 
 	store := &Store{
-		db:    db,
-		agent: a,
-		lock:  &sync.Mutex{},
+		db:   db,
+		lock: &sync.Mutex{},
 	}
 
 	go store.runGcLoop()
@@ -108,13 +106,15 @@ func (s *Store) setJobTxnFunc(pbj *dkronpb.Job) func(txn *badger.Txn) error {
 	}
 }
 
+// DB is the getter for the BadgerDB instance
+func (s *Store) DB() *badger.DB {
+	return s.db
+}
+
 // SetJob stores a job in the storage
-func (s *Store) SetJob(job *Job, copyDependentJobs bool) error {
+func (s *Store) SetJob(job *Job, agent *Agent, copyDependentJobs bool) error {
 	var pbej dkronpb.Job
 	var ej *Job
-
-	// Init the job agent
-	job.Agent = s.agent
 
 	if err := job.Validate(); err != nil {
 		return err
@@ -122,7 +122,7 @@ func (s *Store) SetJob(job *Job, copyDependentJobs bool) error {
 
 	// Abort if parent not found before committing job to the store
 	if job.ParentJob != "" {
-		if j, _ := s.GetJob(job.ParentJob, nil); j == nil {
+		if j, _ := s.GetJob(job.ParentJob, agent, nil); j == nil {
 			return ErrParentJobNotFound
 		}
 	}
@@ -135,7 +135,6 @@ func (s *Store) SetJob(job *Job, copyDependentJobs bool) error {
 		}
 
 		ej = NewJobFromProto(&pbej)
-		ej.Agent = s.agent
 
 		if ej.Name != "" {
 			// When the job runs, these status vars are updated
@@ -302,7 +301,7 @@ func (s *Store) jobHasMetadata(job *Job, metadata map[string]string) bool {
 }
 
 // GetJobs returns all jobs
-func (s *Store) GetJobs(options *JobOptions) ([]*Job, error) {
+func (s *Store) GetJobs(agent *Agent, options *JobOptions) ([]*Job, error) {
 	jobs := make([]*Job, 0)
 
 	err := s.db.View(func(txn *badger.Txn) error {
@@ -322,7 +321,7 @@ func (s *Store) GetJobs(options *JobOptions) ([]*Job, error) {
 			}
 			job := NewJobFromProto(&pbj)
 
-			job.Agent = s.agent
+			job.Agent = agent
 			if options != nil {
 				if options.Metadata != nil && len(options.Metadata) > 0 && !s.jobHasMetadata(job, options.Metadata) {
 					continue
@@ -338,7 +337,7 @@ func (s *Store) GetJobs(options *JobOptions) ([]*Job, error) {
 }
 
 // GetJob finds and return a Job from the store
-func (s *Store) GetJob(name string, options *JobOptions) (*Job, error) {
+func (s *Store) GetJob(name string, agent *Agent, options *JobOptions) (*Job, error) {
 	var pbj dkronpb.Job
 
 	err := s.db.View(s.getJobTxnFunc(name, &pbj))
@@ -347,7 +346,7 @@ func (s *Store) GetJob(name string, options *JobOptions) (*Job, error) {
 	}
 
 	job := NewJobFromProto(&pbj)
-	job.Agent = s.agent
+	job.Agent = agent
 
 	return job, nil
 }
@@ -394,7 +393,6 @@ func (s *Store) DeleteJob(name string) (*Job, error) {
 			return ErrDependentJobs
 		}
 		job = NewJobFromProto(&pbj)
-		job.Agent = s.agent
 
 		if err := s.DeleteExecutions(name); err != nil {
 			return err

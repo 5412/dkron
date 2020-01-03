@@ -70,6 +70,7 @@ type Agent struct {
 	// Pro features
 	GlobalLock         bool
 	MemberEventHandler func(serf.Event)
+	ProAppliers        LogAppliers
 
 	serf        *serf.Serf
 	config      *Config
@@ -295,7 +296,7 @@ func (a *Agent) setupRaft() error {
 			if err != nil {
 				return fmt.Errorf("recovery failed to parse peers.json: %v", err)
 			}
-			tmpFsm := newFSM(nil)
+			tmpFsm := newFSM(nil, nil)
 			if err := raft.RecoverCluster(config, tmpFsm,
 				logStore, stableStore, snapshots, transport, configuration); err != nil {
 				return fmt.Errorf("recovery failed: %v", err)
@@ -331,13 +332,14 @@ func (a *Agent) setupRaft() error {
 
 	// Instantiate the Raft systems. The second parameter is a finite state machine
 	// which stores the actual kv pairs and is operated upon through Apply().
-	fsm := newFSM(a.Store)
+	fsm := newFSM(a.Store, a.ProAppliers)
 	rft, err := raft.NewRaft(config, fsm, logStore, stableStore, snapshots, transport)
 	if err != nil {
 		return fmt.Errorf("new raft: %s", err)
 	}
 	a.leaderCh = rft.LeaderCh()
 	a.raft = rft
+
 	return nil
 }
 
@@ -879,4 +881,9 @@ func (a *Agent) applySetJob(job *proto.Job) error {
 	}
 
 	return nil
+}
+
+// RaftApply applies a command to the Raft log
+func (a *Agent) RaftApply(cmd []byte) raft.ApplyFuture {
+	return a.raft.Apply(cmd, raftTimeout)
 }
