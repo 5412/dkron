@@ -120,7 +120,6 @@ func (h *HTTPTransport) jobsHandler(c *gin.Context) {
 	jobs, err := h.agent.Store.GetJobs(
 		&JobOptions{
 			Metadata: metadata,
-			Agent:    h.agent,
 		},
 	)
 	if err != nil {

@@ -43,7 +43,7 @@ type JobOptions struct {
 }
 
 // NewStore creates a new Storage instance.
-func NewStore(a *Agent, dir string) (*Store, error) {
+func NewStore(dir string) (*Store, error) {
 	opts := badger.DefaultOptions(dir).
 		WithLogger(log)
 
@@ -112,7 +112,7 @@ func (s *Store) DB() *badger.DB {
 }
 
 // SetJob stores a job in the storage
-func (s *Store) SetJob(job *Job, agent *Agent, copyDependentJobs bool) error {
+func (s *Store) SetJob(job *Job, copyDependentJobs bool) error {
 	var pbej dkronpb.Job
 	var ej *Job
 
@@ -122,7 +122,7 @@ func (s *Store) SetJob(job *Job, agent *Agent, copyDependentJobs bool) error {
 
 	// Abort if parent not found before committing job to the store
 	if job.ParentJob != "" {
-		if j, _ := s.GetJob(job.ParentJob, agent, nil); j == nil {
+		if j, _ := s.GetJob(job.ParentJob, nil); j == nil {
 			return ErrParentJobNotFound
 		}
 	}
@@ -192,7 +192,7 @@ func (s *Store) removeFromParent(child *Job) error {
 		return nil
 	}
 
-	parent, err := child.GetParent()
+	parent, err := child.GetParent(s)
 	if err != nil {
 		return err
 	}
@@ -220,7 +220,7 @@ func (s *Store) addToParent(child *Job) error {
 		return nil
 	}
 
-	parent, err := child.GetParent()
+	parent, err := child.GetParent(s)
 	if err != nil {
 		return err
 	}
@@ -301,7 +301,7 @@ func (s *Store) jobHasMetadata(job *Job, metadata map[string]string) bool {
 }
 
 // GetJobs returns all jobs
-func (s *Store) GetJobs(agent *Agent, options *JobOptions) ([]*Job, error) {
+func (s *Store) GetJobs(options *JobOptions) ([]*Job, error) {
 	jobs := make([]*Job, 0)
 
 	err := s.db.View(func(txn *badger.Txn) error {
@@ -321,7 +321,6 @@ func (s *Store) GetJobs(agent *Agent, options *JobOptions) ([]*Job, error) {
 			}
 			job := NewJobFromProto(&pbj)
 
-			job.Agent = agent
 			if options != nil {
 				if options.Metadata != nil && len(options.Metadata) > 0 && !s.jobHasMetadata(job, options.Metadata) {
 					continue
@@ -337,7 +336,7 @@ func (s *Store) GetJobs(agent *Agent, options *JobOptions) ([]*Job, error) {
 }
 
 // GetJob finds and return a Job from the store
-func (s *Store) GetJob(name string, agent *Agent, options *JobOptions) (*Job, error) {
+func (s *Store) GetJob(name string, options *JobOptions) (*Job, error) {
 	var pbj dkronpb.Job
 
 	err := s.db.View(s.getJobTxnFunc(name, &pbj))
@@ -346,7 +345,6 @@ func (s *Store) GetJob(name string, agent *Agent, options *JobOptions) (*Job, er
 	}
 
 	job := NewJobFromProto(&pbj)
-	job.Agent = agent
 
 	return job, nil
 }
