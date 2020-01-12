@@ -574,6 +574,11 @@ func (a *Agent) LocalMember() serf.Member {
 	return a.serf.LocalMember()
 }
 
+// Leader is used to return the Raft leader
+func (a *Agent) Leader() raft.ServerAddress {
+	return a.raft.Leader()
+}
+
 // Servers returns a list of known server
 func (a *Agent) Servers() (members []*ServerParts) {
 	for _, member := range a.serf.Members() {
